@@ -1,0 +1,52 @@
+name: build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  firmware:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain and Contiki 3.0
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-none-eabi
+          git clone --branch 3.0 --depth 1 https://github.com/contiki-os/contiki.git
+          sed -i 's/} > FLASH= 0/} > FLASH/' contiki/cpu/cc2538/cc2538.lds
+      - name: Build firmware for Zolertia RE-Mote
+        run: |
+          for app in base_station sensor_node_v1_neighbor_discovery sensor_node_v2_hop_routing; do
+            echo "::group::$app"
+            make -C firmware/$app TARGET=remote CONTIKI=$GITHUB_WORKSPACE/contiki
+            echo "::endgroup::"
+          done
+          arm-none-eabi-size firmware/*/*.elf
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware-remote
+          path: firmware/*/*.bin
+
+  desktop:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y qtbase5-dev qt5-qmake
+      - name: Build Qt apps
+        run: |
+          mkdir build && cd build
+          qmake ../desktop/WSN_Lab.pro
+          make -j4
+          ls -la apps/serial_link/SerialLink apps/ambient_temperature/AmbientTemperature
+
+  cipher-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pytest
+      - run: cd tools/cipher && python -m pytest -q
